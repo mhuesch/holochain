@@ -510,6 +510,13 @@ pub(crate) enum PublishError {
         retry_after: chrono::DateTime<Utc>,
     },
 
+    #[error("{package}: check failed: {log}")]
+    CheckFailure {
+        package: String,
+        version: String,
+        log: String,
+    },
+
     #[error("{}: {}", _0, _1)]
     Other(String, String),
 }
@@ -670,7 +677,7 @@ impl PublishError {
     }
 }
 
-mod crates_index_helper {
+pub(crate) mod crates_index_helper {
     use super::*;
 
     static CRATES_IO_INDEX: OnceCell<crates_index::Index> = OnceCell::new();
@@ -726,30 +733,63 @@ fn publish_paths_to_crates_io(
     let mut queue = crates.iter().collect::<std::collections::LinkedList<_>>();
     let mut errors: Vec<PublishError> = vec![];
     while let Some(crt) = queue.pop_front() {
-        if !dry_run && crates_index_helper::is_version_published(crt, false)? {
-            debug!("{} is already published, skipping..", crt.name_version());
+        if !crt.state().changed() && crates_index_helper::is_version_published(crt, false)? {
+            debug!(
+                "{} is unchanged and already published, skipping..",
+                crt.name_version()
+            );
             continue;
+        }
+        let path = crt.manifest_path();
+
+        {
+            let mut cmd = std::process::Command::new("cargo");
+            cmd.args(
+                [
+                    vec!["check"],
+                    vec![
+                        "--locked",
+                        "--verbose",
+                        &format!("--manifest-path={}", path.to_string_lossy()),
+                    ],
+                ]
+                .concat(),
+            );
+            debug!("Running command: {:?}", cmd);
+
+            let output = cmd.output().context("process exitted unsuccessfully")?;
+            if !output.status.success() {
+                let mut details = String::new();
+                for line in output.stderr.lines_with_terminator() {
+                    let line = line.to_str_lossy();
+                    details += &line;
+                }
+
+                errors.push(PublishError::CheckFailure {
+                    package: crt.name(),
+                    version: crt.version().to_string(),
+                    log: details,
+                });
+
+                continue;
+            }
         }
 
         let mut cmd = std::process::Command::new("cargo");
-
-        let path = crt.manifest_path();
-
         cmd.args(
             [
                 vec!["publish"],
-                if dry_run {
-                    vec!["--dry-run", "--no-verify"]
-                } else {
-                    vec![]
-                },
+                if dry_run { vec!["--dry-run"] } else { vec![] },
                 if allow_dirty {
-                    vec!["--allow-dirty"]
+                    vec![
+                        "--allow-dirty",
+                        // compilation for `cargo publish` is broken for certain packages, while `cargo check` works
+                        "--no-verify",
+                    ]
                 } else {
                     vec![]
                 },
                 vec![
-                    // "--no-default-features",
                     "--verbose",
                     &format!("--manifest-path={}", path.to_string_lossy()),
                 ],
@@ -787,6 +827,7 @@ fn publish_paths_to_crates_io(
                     queue.push_front(crt);
                     continue;
                 }
+                PublishError::CheckFailure { .. } => true,
             } {
                 errors.push(error);
             } else {
