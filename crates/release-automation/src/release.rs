@@ -31,6 +31,8 @@ use crate::changelog::{Changelog, WorkspaceCrateReleaseHeading};
 use crate::crate_selection::Crate;
 pub(crate) use crate_selection::{ReleaseWorkspace, SelectionCriteria};
 
+const TARGET_DIR_SUFFIX: &str = "target/release_automation";
+
 /// These steps make up the release workflow
 #[bitflags]
 #[repr(u64)]
@@ -207,6 +209,7 @@ fn bump_release_versions<'a>(
         true,
         true,
         &cmd_args.allowed_missing_dependencies,
+        &cmd_args.cargo_target_dir,
     )
     .context("consistency checks failed")?;
 
@@ -297,6 +300,7 @@ fn bump_release_versions<'a>(
         true,
         true,
         &cmd_args.allowed_missing_dependencies,
+        &cmd_args.cargo_target_dir,
     )
     .context("consistency checks failed")?;
 
@@ -366,7 +370,13 @@ fn publish_to_crates_io<'a>(
 ) -> Fallible<()> {
     let crates = latest_release_crates(ws)?;
 
-    publish_paths_to_crates_io(&crates, cmd_args.dry_run, false, &Default::default())?;
+    publish_paths_to_crates_io(
+        &crates,
+        cmd_args.dry_run,
+        false,
+        &Default::default(),
+        &cmd_args.cargo_target_dir,
+    )?;
 
     Ok(())
 }
@@ -736,6 +746,7 @@ fn publish_paths_to_crates_io(
     dry_run: bool,
     allow_dirty: bool,
     allowed_missing_dependencies: &HashSet<String>,
+    cargo_target_dir: &Option<PathBuf>,
 ) -> Fallible<()> {
     static USER_AGENT: &str = "Holochain_Core_Dev_Team (devcore@holochain.org)";
     static CRATES_IO_CLIENT: OnceCell<crates_io_api::AsyncClient> = OnceCell::new();
@@ -755,6 +766,9 @@ fn publish_paths_to_crates_io(
         }
 
         let manifest_path = crt.manifest_path();
+        let cargo_target_dir_string = cargo_target_dir
+            .as_ref()
+            .map(|target_dir| format!("--target-dir={}", target_dir.to_string_lossy().to_string()));
 
         let mut cmd = std::process::Command::new("cargo");
         cmd.args(
@@ -771,6 +785,11 @@ fn publish_paths_to_crates_io(
                     "--verbose",
                     &format!("--manifest-path={}", manifest_path.to_string_lossy()),
                 ],
+                if let Some(target_dir) = cargo_target_dir_string.as_ref() {
+                    vec![target_dir]
+                } else {
+                    vec![]
+                },
             ]
             .concat(),
         );
