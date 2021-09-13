@@ -14,7 +14,7 @@ chrono = "0.4.6"
 derive_more = "0.99.3"
 either = "1.5"
 holochain_sqlite = { version = "0.0.6-dev.0", path = "../holochain_sqlite" }
-holo_hash = { version = "0.0.5", path = "../holo_hash", features = ["full"] }
+holo_hash = { version = "0.0.6-dev.0", path = "../holo_hash", features = ["full"] }
 fallible-iterator = "0.2.0"
 holochain_keystore = { version = "0.0.6-dev.0", path = "../holochain_keystore" }
 holochain_serialized_bytes = "=0.0.51"
@@ -22,7 +22,7 @@ holochain_p2p = { version = "0.0.6-dev.0", path = "../holochain_p2p" }
 holochain_types = { version = "0.0.6-dev.0", path = "../holochain_types" }
 holochain_util = { version = "0.0.3", path = "../holochain_util" }
 holochain_wasm_test_utils = { path = "../test_utils/wasm", optional = true, version = "0.0.6-dev.0"}
-holochain_zome_types = { version = "0.0.7", path = "../holochain_zome_types", features = [ "full" ] }
+holochain_zome_types = { version = "0.0.8-dev.0", path = "../holochain_zome_types", features = [ "full" ] }
 kitsune_p2p = { version = "0.0.6-dev.0", path = "../kitsune_p2p/kitsune_p2p" }
 mockall = "0.10.2"
 parking_lot = "0.10"
