@@ -200,6 +200,16 @@ fn bump_release_versions<'a>(
         return Ok(());
     }
 
+    // run the checks to ensure the repo is in a consistent state to begin with
+    info!("running consistency checks before changing the versions...");
+    publish_paths_to_crates_io(
+        &selection,
+        true,
+        true,
+        &cmd_args.allowed_missing_dependencies,
+    )
+    .context("consistency checks failed")?;
+
     let mut changed_crate_changelogs = vec![];
 
     for crt in &selection {
@@ -279,6 +289,17 @@ fn bump_release_versions<'a>(
         }
     }
 
+    ws.update_lockfile(cmd_args.dry_run)?;
+
+    info!("running consistency checks after changing the versions...");
+    publish_paths_to_crates_io(
+        &selection,
+        true,
+        true,
+        &cmd_args.allowed_missing_dependencies,
+    )
+    .context("consistency checks failed")?;
+
     // ## for the workspace release:
     let workspace_release_name = branch_name
         .strip_prefix(RELEASE_BRANCH_PREFIX)
@@ -309,15 +330,6 @@ fn bump_release_versions<'a>(
         ws_changelog.add_release(workspace_release_name, &changed_crate_changelogs)?;
     }
 
-    info!("running `cargo publish --dry-run --allow-dirty ..` for all selected crates...");
-    publish_paths_to_crates_io(
-        &selection,
-        true,
-        true,
-        &cmd_args.allowed_missing_dependencies,
-    )
-    .context("running 'cargo publish' in dry-run mode for all selected crates")?;
-
     // create a release commit with an overview of which crates are included
     let commit_msg = indoc::formatdoc!(
         r#"
@@ -335,9 +347,6 @@ fn bump_release_versions<'a>(
 
     info!("creating the following commit: {}", commit_msg);
     if !cmd_args.dry_run {
-        // this checks consistency and also updates the Cargo.lock file(s)
-        ws.cargo_check()?;
-
         ws.git_add_all_and_commit(&commit_msg, None)?;
     };
 
@@ -719,6 +728,9 @@ pub(crate) mod crates_index_helper {
 /// If dry-run is given, the following error conditoins are tolerated:
 /// - a dependency is not found but is part of the release
 /// - a version of a dependency is not found bu the dependency is part of the release
+///
+/// For this to work properly all changed crates need to have their dev versions applied.
+/// If they don't, `cargo publish` will prefer a published crates to the local ones.
 fn publish_paths_to_crates_io(
     crates: &[&Crate],
     dry_run: bool,
@@ -730,6 +742,8 @@ fn publish_paths_to_crates_io(
 
     let crate_names: HashSet<String> = crates.iter().map(|crt| crt.name()).collect();
 
+    debug!("attempting to publish {:?}", crate_names);
+
     let mut queue = crates.iter().collect::<std::collections::LinkedList<_>>();
     let mut errors: Vec<PublishError> = vec![];
     while let Some(crt) = queue.pop_front() {
@@ -738,42 +752,9 @@ fn publish_paths_to_crates_io(
                 "{} is unchanged and already published, skipping..",
                 crt.name_version()
             );
-            continue;
         }
-        let path = crt.manifest_path();
 
-        {
-            let mut cmd = std::process::Command::new("cargo");
-            cmd.args(
-                [
-                    vec!["check"],
-                    vec![
-                        "--locked",
-                        "--verbose",
-                        &format!("--manifest-path={}", path.to_string_lossy()),
-                    ],
-                ]
-                .concat(),
-            );
-            debug!("Running command: {:?}", cmd);
-
-            let output = cmd.output().context("process exitted unsuccessfully")?;
-            if !output.status.success() {
-                let mut details = String::new();
-                for line in output.stderr.lines_with_terminator() {
-                    let line = line.to_str_lossy();
-                    details += &line;
-                }
-
-                errors.push(PublishError::CheckFailure {
-                    package: crt.name(),
-                    version: crt.version().to_string(),
-                    log: details,
-                });
-
-                continue;
-            }
-        }
+        let manifest_path = crt.manifest_path();
 
         let mut cmd = std::process::Command::new("cargo");
         cmd.args(
@@ -781,17 +762,14 @@ fn publish_paths_to_crates_io(
                 vec!["publish"],
                 if dry_run { vec!["--dry-run"] } else { vec![] },
                 if allow_dirty {
-                    vec![
-                        "--allow-dirty",
-                        // compilation for `cargo publish` is broken for certain packages, while `cargo check` works
-                        "--no-verify",
-                    ]
+                    vec!["--allow-dirty"]
                 } else {
                     vec![]
                 },
                 vec![
+                    "--locked",
                     "--verbose",
-                    &format!("--manifest-path={}", path.to_string_lossy()),
+                    &format!("--manifest-path={}", manifest_path.to_string_lossy()),
                 ],
             ]
             .concat(),
