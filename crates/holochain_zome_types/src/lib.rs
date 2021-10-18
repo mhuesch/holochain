@@ -60,6 +60,8 @@ pub mod validate_link;
 pub mod version;
 pub mod warrant;
 #[allow(missing_docs)]
+pub mod wire;
+#[allow(missing_docs)]
 pub mod x_salsa20_poly1305;
 #[allow(missing_docs)]
 pub mod zome;

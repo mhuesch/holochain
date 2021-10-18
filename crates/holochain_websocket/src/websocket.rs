@@ -6,6 +6,7 @@ use futures::FutureExt;
 use futures::SinkExt;
 use futures::StreamExt;
 use holochain_serialized_bytes::prelude::*;
+use holochain_zome_types::wire::WireMessage;
 use stream_cancel::Trigger;
 use stream_cancel::Valve;
 use stream_cancel::Valved;
@@ -31,7 +32,6 @@ use crate::WebsocketError;
 use crate::WebsocketReceiver;
 use crate::WebsocketResult;
 use crate::WebsocketSender;
-use crate::WireMessage;
 
 type GhostResult<T> = std::result::Result<T, GhostError>;
 
